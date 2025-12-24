@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Application specific
+output/
+python/
+*.log
+
+# Crafting tree viewer data files (generated)
+crafting-tree-viewer/items-data.js
+crafting-tree-viewer/recipes-data.js
+
+# User resources
+resources/locale/en/
+resources/locale/id/
+resources/*.txt

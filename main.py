@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""
+Eco Data Reader - Python Version
+
+Main entry point for reading and processing Eco server game data.
+"""
+
+import json
+import logging
+import sys
+from pathlib import Path
+from typing import List
+
+from eco_data_reader.config import Config
+from eco_data_reader.services import EcoServerFileService
+from eco_data_reader.models import Item, Recipe
+from eco_data_reader.utils import JsonTypeScriptProcessor
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+def compare_items_and_recipes():
+    """Compare current items and recipes with the latest from the Eco server."""
+    config = Config()
+    eco_server_service = EcoServerFileService(config.eco_server_path)
+
+    logger.info("Loading recipes from Eco server...")
+    recipes = eco_server_service.get_all_recipes()
+    logger.info(f"Loaded {len(recipes)} recipes")
+
+    logger.info("Loading items from Eco server...")
+    items = eco_server_service.get_all_items()
+    logger.info(f"Loaded {len(items)} items")
+
+    # For now, just output the data as JSON
+    # In future, implement comparison with crafting tool data
+    logger.info("Conversion complete!")
+
+
+def get_locale_json() -> str:
+    """Generate locale data from the defaultstrings.csv file."""
+    # This would need implementation similar to the Translator class
+    # For now, returning placeholder
+    logger.warning("Locale JSON generation not yet implemented")
+    return "{}"
+
+
+def write_items_to_file():
+    """Write current items list to file."""
+    config = Config()
+    items = get_items_from_files(config)
+
+    output_file = Path("resources") / "newest-items.txt"
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        for item in items:
+            f.write(f"{item.name}\n")
+
+    logger.info(f"Wrote {len(items)} items to {output_file}")
+
+
+def write_recipes_to_file():
+    """Write current recipes list to file."""
+    config = Config()
+    recipes = get_recipes_from_files(config)
+
+    output_file = Path("resources") / "newest-recipes.txt"
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        for recipe in recipes:
+            f.write(f"{recipe.name}\n")
+
+    logger.info(f"Wrote {len(recipes)} recipes to {output_file}")
+
+
+def generate_new_recipes_string() -> str:
+    """Generate TypeScript string for new recipes."""
+    config = Config()
+    new_recipes = get_recipes_from_files(config)
+
+    # Convert to JSON
+    recipes_data = [recipe.to_dict() for recipe in new_recipes]
+    recipe_json = json.dumps(recipes_data, indent=2)
+
+    # Convert to TypeScript format
+    ts_string = JsonTypeScriptProcessor.process_json_to_typescript(recipe_json)
+
+    # Remove [ ] from the ends
+    ts_string = ts_string[1:-1]
+
+    logger.info("Generated TypeScript string for new recipes")
+    return ts_string
+
+
+def generate_new_items_string() -> str:
+    """Generate TypeScript string for new items."""
+    config = Config()
+    new_items = get_items_from_files(config)
+
+    # Convert to JSON
+    items_data = [item.to_dict() for item in new_items]
+    item_json = json.dumps(items_data, indent=2)
+
+    # Convert to TypeScript format
+    ts_string = JsonTypeScriptProcessor.process_json_to_typescript(item_json)
+
+    # Remove [ ] from the ends
+    ts_string = ts_string[1:-1]
+
+    logger.info("Generated TypeScript string for new items")
+    return ts_string
+
+
+def get_recipes_from_files(config: Config) -> List[Recipe]:
+    """Get recipes from Eco server files that are not in current-recipes.txt."""
+    eco_server_service = EcoServerFileService(config.eco_server_path)
+    recipes = eco_server_service.get_all_recipes()
+    recipes.sort(key=lambda r: r.name)
+
+    new_recipes = []
+    for recipe in recipes:
+        if matches_new_recipes(recipe):
+            new_recipes.append(recipe)
+
+    return new_recipes
+
+
+def get_items_from_files(config: Config) -> List[Item]:
+    """Get items from Eco server files that are not in current-items.txt."""
+    eco_server_service = EcoServerFileService(config.eco_server_path)
+    items = eco_server_service.get_all_items()
+    items.sort(key=lambda i: i.name)
+
+    new_items = []
+    for item in items:
+        if matches_new_items(item):
+            new_items.append(item)
+
+    return new_items
+
+
+def matches_new_items(item: Item) -> bool:
+    """Check if item is not in current-items.txt."""
+    current_items_file = Path("src/main/resources/current-items.txt")
+    if not current_items_file.exists():
+        return True
+
+    with open(current_items_file, 'r', encoding='utf-8') as f:
+        item_names = [line.strip() for line in f if line.strip()]
+
+    return not any(name.lower() == item.name.lower() for name in item_names)
+
+
+def matches_new_recipes(recipe: Recipe) -> bool:
+    """Check if recipe is not in current-recipes.txt."""
+    current_recipes_file = Path("src/main/resources/current-recipes.txt")
+    if not current_recipes_file.exists():
+        return True
+
+    with open(current_recipes_file, 'r', encoding='utf-8') as f:
+        recipe_names = [line.strip() for line in f if line.strip()]
+
+    return not any(name.lower() == recipe.name.lower() for name in recipe_names)
+
+
+def get_user_choice():
+    """Get user's choice for what to generate."""
+    print("\n" + "=" * 60)
+    print("ECO DATA READER - OUTPUT OPTIONS")
+    print("=" * 60)
+    print("\nWhat would you like to generate?")
+    print("\n1. All items and recipes (complete dataset)")
+    print("2. Only NEW items and recipes (not in current-items.txt/current-recipes.txt)")
+    print("3. Exit without generating")
+    print("\n" + "=" * 60)
+
+    while True:
+        choice = input("\nEnter your choice (1, 2, or 3): ").strip()
+        if choice in ['1', '2', '3']:
+            return choice
+        print("Invalid choice. Please enter 1, 2, or 3.")
+
+
+def generate_output_files(generate_all=True):
+    """Generate output files based on user choice."""
+    config = Config()
+    eco_server_service = EcoServerFileService(config.eco_server_path)
+
+    # Create output directory
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
+
+    logger.info("\n" + "=" * 60)
+    logger.info(f"Generating {'ALL' if generate_all else 'NEW'} items and recipes...")
+    logger.info("=" * 60)
+
+    # Get items and recipes
+    logger.info("\nLoading items from Eco server...")
+    all_items = eco_server_service.get_all_items()
+    all_items.sort(key=lambda i: i.name)
+    logger.info(f"Loaded {len(all_items)} items")
+
+    logger.info("\nLoading recipes from Eco server...")
+    all_recipes = eco_server_service.get_all_recipes()
+    all_recipes.sort(key=lambda r: r.name)
+    logger.info(f"Loaded {len(all_recipes)} recipes")
+
+    # Filter if needed
+    if generate_all:
+        items_to_generate = all_items
+        recipes_to_generate = all_recipes
+    else:
+        logger.info("\nFiltering for new items only...")
+        items_to_generate = [item for item in all_items if matches_new_items(item)]
+        recipes_to_generate = [recipe for recipe in all_recipes if matches_new_recipes(recipe)]
+        logger.info(f"Found {len(items_to_generate)} new items")
+        logger.info(f"Found {len(recipes_to_generate)} new recipes")
+
+    # Write item names list
+    items_list_file = output_dir / ("all-items.txt" if generate_all else "new-items.txt")
+    with open(items_list_file, 'w', encoding='utf-8') as f:
+        for item in items_to_generate:
+            f.write(f"{item.name}\n")
+    logger.info(f"\n✓ Wrote items list to: {items_list_file}")
+
+    # Write recipe names list
+    recipes_list_file = output_dir / ("all-recipes.txt" if generate_all else "new-recipes.txt")
+    with open(recipes_list_file, 'w', encoding='utf-8') as f:
+        for recipe in recipes_to_generate:
+            f.write(f"{recipe.name}\n")
+    logger.info(f"✓ Wrote recipes list to: {recipes_list_file}")
+
+    # Generate TypeScript for items
+    items_data = [item.to_dict() for item in items_to_generate]
+    item_json = json.dumps(items_data, indent=2)
+    item_ts = JsonTypeScriptProcessor.process_json_to_typescript(item_json)
+
+    items_ts_file = output_dir / ("all-items.ts" if generate_all else "new-items.ts")
+    with open(items_ts_file, 'w', encoding='utf-8') as f:
+        f.write("// Generated by Eco Data Reader\n")
+        f.write("// Items for EcoCraftingTool\n\n")
+        f.write("const items = ")
+        f.write(item_ts)
+        f.write(";\n")
+    logger.info(f"✓ Wrote items TypeScript to: {items_ts_file}")
+
+    # Generate TypeScript for recipes
+    recipes_data = [recipe.to_dict() for recipe in recipes_to_generate]
+    recipe_json = json.dumps(recipes_data, indent=2)
+    recipe_ts = JsonTypeScriptProcessor.process_json_to_typescript(recipe_json)
+
+    recipes_ts_file = output_dir / ("all-recipes.ts" if generate_all else "new-recipes.ts")
+    with open(recipes_ts_file, 'w', encoding='utf-8') as f:
+        f.write("// Generated by Eco Data Reader\n")
+        f.write("// Recipes for EcoCraftingTool\n\n")
+        f.write("const recipes = ")
+        f.write(recipe_ts)
+        f.write(";\n")
+    logger.info(f"✓ Wrote recipes TypeScript to: {recipes_ts_file}")
+
+    logger.info("\n" + "=" * 60)
+    logger.info("GENERATION COMPLETE!")
+    logger.info("=" * 60)
+    logger.info(f"\nAll files saved to: {output_dir.absolute()}")
+    logger.info(f"\n  Items:   {len(items_to_generate)}")
+    logger.info(f"  Recipes: {len(recipes_to_generate)}")
+    logger.info("\nGenerated files:")
+    logger.info(f"  - {items_list_file.name}")
+    logger.info(f"  - {recipes_list_file.name}")
+    logger.info(f"  - {items_ts_file.name}")
+    logger.info(f"  - {recipes_ts_file.name}")
+
+
+def main():
+    """Main entry point."""
+    try:
+        logger.info("=" * 60)
+        logger.info("Eco Data Reader - Python Version")
+        logger.info("=" * 60)
+
+        # Get user choice
+        choice = get_user_choice()
+
+        if choice == '3':
+            logger.info("\nExiting without generating files.")
+            return 0
+
+        generate_all = (choice == '1')
+
+        # Generate output files
+        generate_output_files(generate_all)
+
+    except FileNotFoundError as e:
+        logger.error(f"\nConfiguration error: {e}")
+        logger.error("\nPlease ensure:")
+        logger.error("1. config.ini exists in the root directory")
+        logger.error("2. ECO_SERVER_PATH is set to your Eco server Mods\\__core__ folder")
+        return 1
+    except Exception as e:
+        logger.error(f"\nAn error occurred: {e}", exc_info=True)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
